@@ -68,7 +68,7 @@ canvas { display: block; }
   </div>
   <div>
     <div style="text-align:right">Score: <span id="score">0</span></div>
-    <div style="text-align:right;margin-top:4px">Kills: <span id="kills">0</span></div>
+    <div style="text-align:right;margin-top:4px">Kills: <span id="kills">0</span> | Guns: <span id="guns">1</span></div>
   </div>
 </div>
 
@@ -106,6 +106,19 @@ let waveTimer, enemiesRemaining, waveDelay;
 let lastTime = 0;
 let autoFireTimer = 0;
 const AUTO_FIRE_RATE = 0.15; // seconds between auto shots
+let gunLevel = 1;
+let gunUpTimer = 0; // for showing "GUN UP!" text
+
+// Kill thresholds for each gun level
+const GUN_THRESHOLDS = [0, 10, 25, 50, 85, 130, 185, 250];
+
+function getGunLevel(k) {
+  let level = 1;
+  for (let i = 1; i < GUN_THRESHOLDS.length; i++) {
+    if (k >= GUN_THRESHOLDS[i]) level = i + 1;
+  }
+  return level;
+}
 
 // Player
 function createPlayer() {
@@ -148,16 +161,24 @@ function spawnEnemy(type) {
 function spawnProjectile(tx, ty) {
   const dx = tx - player.x;
   const dy = ty - player.y;
-  const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+  const baseAngle = Math.atan2(dy, dx);
   const speed = 10;
-  projectiles.push({
-    x: player.x, y: player.y - player.size,
-    vx: (dx / dist) * speed,
-    vy: (dy / dist) * speed,
-    damage: player.damage,
-    size: 4,
-    life: 2,
-  });
+  const guns = gunLevel;
+  const spreadAngle = 0.15; // radians between each gun
+
+  for (let i = 0; i < guns; i++) {
+    // Center the spread: offset from -(guns-1)/2 to +(guns-1)/2
+    const offset = (i - (guns - 1) / 2) * spreadAngle;
+    const angle = baseAngle + offset;
+    projectiles.push({
+      x: player.x, y: player.y - player.size,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      damage: player.damage,
+      size: 4,
+      life: 2,
+    });
+  }
 }
 
 function spawnParticles(x, y, color, count) {
@@ -252,7 +273,7 @@ document.getElementById('restart-btn').addEventListener('click', startGame);
 
 function startGame() {
   state = 'playing';
-  score = 0; kills = 0; wave = 1;
+  score = 0; kills = 0; wave = 1; gunLevel = 1; gunUpTimer = 0;
   player = createPlayer();
   enemies = [];
   projectiles = [];
@@ -278,6 +299,7 @@ function gameOver() {
 function updateHUD() {
   document.getElementById('score').textContent = score;
   document.getElementById('kills').textContent = kills;
+  document.getElementById('guns').textContent = gunLevel;
   document.getElementById('wave-num').textContent = wave;
   const pct = Math.max(0, (player.hp / player.maxHp) * 100);
   const fill = document.getElementById('hp-fill');
@@ -329,6 +351,9 @@ function update(dt) {
   } else {
     autoFireTimer = 0;
   }
+
+  // Gun up timer
+  if (gunUpTimer > 0) gunUpTimer -= dt;
 
   // Wave spawning
   if (waveDelay > 0) {
@@ -398,6 +423,11 @@ function update(dt) {
         if (e.hp <= 0) {
           score += e.score;
           kills++;
+          const newGunLevel = getGunLevel(kills);
+          if (newGunLevel > gunLevel) {
+            gunLevel = newGunLevel;
+            gunUpTimer = 2; // show "GUN UP!" for 2 seconds
+          }
           spawnParticles(e.x, e.y, e.color, 15);
           enemies.splice(j, 1);
           updateHUD();
@@ -452,6 +482,24 @@ function draw() {
     ctx.font = '18px sans-serif';
     ctx.fillStyle = '#ccc';
     ctx.fillText('Get ready!', W / 2, H / 2);
+    ctx.restore();
+  }
+
+  // Gun Up notification
+  if (gunUpTimer > 0) {
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, gunUpTimer);
+    ctx.fillStyle = '#0f0';
+    ctx.font = 'bold 40px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.shadowColor = '#0f0';
+    ctx.shadowBlur = 20;
+    ctx.fillText(`GUN UP! x${gunLevel}`, W / 2, H / 2 + 40);
+    ctx.shadowBlur = 0;
+    const nextThreshold = GUN_THRESHOLDS[gunLevel] || '???';
+    ctx.font = '16px sans-serif';
+    ctx.fillStyle = '#afa';
+    ctx.fillText(`Next upgrade: ${nextThreshold} kills`, W / 2, H / 2 + 70);
     ctx.restore();
   }
 
